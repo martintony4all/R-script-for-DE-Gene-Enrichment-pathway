@@ -1,0 +1,324 @@
+---
+title: "Differential Expression by Martin Nwadiugwu"
+output:
+  html_document:
+    toc: TRUE
+    toc_depth: 2
+    toc_float: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Perform differential gene expression analysis in R.
+## Installation of bioconductor packages
+```{r eval=F}
+BiocManager::install(c("limma","affy","hgu133plus2.db"))
+```
+### Loading the needed libraries
+```{r eval=T}
+library(affy)
+library(limma)
+library(hgu133plus2.db)
+```
+
+## Part1: Raw data (tar file) obtained from https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE82208 
+### Setting up the working directory 
+
+```{r eval = F}
+setwd("C:/Users/mnwadiugwu/Desktop")
+```
+#Checking for list of files in working directory
+
+```{r eval=T}
+list.files()
+```
+
+### Untarring the 'tar files' and reading it into R
+```{r eval=T}
+# untarring the GSE82208 "tar" file
+untar("GSE82208_RAW.tar")
+
+# reading and assigning the untarred files (CEL files) into R
+mcn <- ReadAffy(celfile.path="/Users/mnwadiugwu/Desktop/project",compress=TRUE)
+
+```
+
+## Part2: Normalizing and creating expression matrix for visualization
+
+
+```{r eval=T}
+# performing RMA normalization
+celnorm <-rma(mcn)
+
+# converting to expression matrix
+expr<-exprs(celnorm)  
+
+#print first six rows and columns
+print(expr[1:6,1:6])
+
+#printing expression matrix dimension
+print(dim(expr))
+
+#printing sample names of expression matrix
+print(colnames(expr))
+
+#removing ".CEL.gz" extension from sample names using gsub
+colnames(expr) <- gsub(".CEL.gz","",colnames(expr))
+
+#confirming the column extension change
+print(colnames(expr))
+```
+
+### boxplot of expression values distribution 
+```{r eval=T}
+boxplot(log2(expr+1), use.cols=TRUE, las=2,cex.axis=0.8, outline = F)
+```
+
+## Part3: Fiting Linear Model using limma ($Y = B0+ B1*X$) sample group($X$), gene expression($Y$) -for comparing groups--
+
+```{r eval=T}
+#creating a factor data
+group <- factor(c(rep(0,27),rep(1,25)))
+
+#creating design matrix to indicate the different RNA or miRNA samples
+design <- model.matrix(~ 0 + group)
+
+# note that in this dataset first 27 samples are FTC samples and next 25 samples are FTA samples
+colnames(design)<-c("FTC","FTA")
+print(design)
+
+#creating contrast matrix to compare the different samples. The sample with the value +1 will be sample of interest
+
+contrast.matrix<-makeContrasts(FTC-FTA, levels=design)
+print(contrast.matrix)
+
+# fitting the expression data into a linear model
+fit <- lmFit(celnorm, design)
+fit <- contrasts.fit(fit, contrast.matrix)
+
+# printing sample coeffeicients
+print(head(fit$coefficients))
+
+# Empirical Bayes to adjust variances, computes t-stat, std. error, log Fold Change, log odd
+fit2 <- eBayes(fit)
+```
+### summary of the results using topTable() 
+## Adj. p.value using the BH method 
+## log-odds ((B-statistic)
+
+```{r eval=T}
+# extracting top 1000 differentially expressed genes
+results<-topTable(fit2, adjust="BH", number=1000, sort.by="B")
+
+# printing few results, the rownames contains the affy-id
+print(head(results))
+```
+## Part 4: Mapping Probe Ids to Gene Names 
+```{r eval=T}
+#using hgu133plus2.db package earlier installed
+mapped_probes <- mappedkeys(hgu133plus2SYMBOL)
+
+#prints first five affy-ids for which there is some information
+print(mapped_probes[1:5])
+
+# get mapping of affy-id to symbol for mapped probes
+mapped_list <- as.list(hgu133plus2SYMBOL[mapped_probes])
+
+#prints symbol information for first five affy-ids
+print(mapped_list[1:5])
+
+# match gives vector of positions of matches of 1st arg. in its 2nd.
+index <- match(rownames(results),mapped_probes)
+
+# get the corresponding symbol from these indices
+symbol <- as.character(mapped_list[index])
+
+# some symbols are labelled NULL, substitute NULL to NA
+symbol <- gsub("NULL", NA, symbol)
+
+# add a column to the results table and save to result_final
+result_final<-cbind(results, symbol)
+
+print(head(result_final))
+```
+## Part 5: Saving the output into "csv" files
+
+```{r eval=T}
+write.csv(result_final,file="DE_FTC_FTA.csv", quote=F)
+
+# get a subset of result that is up regulated in cancer
+result_final_pos <- subset(result_final, result_final$logFC>0)
+print(head(result_final_pos))
+write.csv(result_final_pos,file="DE_FTC_FTA_up.csv", quote=F)
+
+# get a subset of result that is down regulated in cancer
+result_final_neg <- subset(result_final, result_final$logFC<0)
+print(head(result_final_pos))
+write.csv(result_final_neg,file="DE_FTC_FTA_DOWN.csv", quote=F)
+
+```
+#Deliverable 2
+#Reading miRNA target genes
+```{r eval=T}
+#Installing R packages for data manipulation 
+install.packages("dplyr")
+install.packages("tidyverse")
+
+#loading libraries
+library(dplyr)
+library(tidyverse)
+
+#Reading the target site csv file in R
+MiR <- read.csv(file ="/Users/mnwadiugwu/Desktop/MicroRNA_Target_Sites.csv")
+
+# converting it to a dplyr file format
+MiR <- tbl_df(MiR)
+
+#filter file to contain only the miRNAs of interest
+f=filter(MiR, miRNA == 'hsa-miR-21-3p'| miRNA == 'hsa-miR-21-5p')
+
+#create unique gene list
+GeneList <- data.frame(unique(f$Target.Gene))
+
+#editing column names of unique gene list
+names(GeneList) <- gsub("unique.f.", "", names(GeneList))
+
+print(GeneList)
+
+#saving unique gene list to a csv file
+write.csv(GeneList, "UniqueGeneList.csv")
+
+```
+
+##Deliverable 3
+##Finding down-regulated miRNA target genes in FTC
+```{r eval=T}
+#reading down regulated FTC file
+DownFTC <- read.csv("DE_FTC_FTA_DOWN.csv")
+
+#Finding miRNA(miR 21) target genes via intersection with down regulated FTC file
+td<- data.frame(intersect(DownFTC$symbol, GeneList$Target.Gene.))
+print(td)
+
+#saving miR 21 target genes in FTA to a csv file
+write.csv(td, "Deliverable_3_FTCGene_of_interest.csv")
+
+
+#Finding down-regulated miRNA target genes in FTA
+DownFTA <- read.csv("DE_FTA_FTC_DOWN.csv")
+
+#Finding miRNA(miR 21) target genes via intersection with down regulated FTA file
+fk <- data.frame(intersect(DownFTA$symbol, GeneList$Target.Gene.))
+print(fk)
+
+#saving miR 21 target genes in FTA to a csv file
+write.csv(fk, "Deliverable_3_FTAGene_of_interest.csv")
+
+```
+
+##Deliverable 4
+##Functional enrichment
+#Installing packages
+
+BiocManager::install(c("GOFunction","org.Hs.eg.db","pathview","ReactomePA"))
+
+## Loading needed libraries
+```{r eval=T}
+library(GOFunction)
+library(org.Hs.eg.db)
+library(pathview)
+library(ReactomePA)
+library(hgu133plus2.db)
+
+```
+
+
+##Functional Enrichment using Gene Ontology, Outputs GO plot and list of enriched terms
+## Part 4: Mapping Probe Ids to Gene Names 
+
+````{r eval=T}
+#Loading diff. analysis object
+load("fit2.bin")
+
+# reading gene differential analysis results 
+result_final <- read.csv(file="DE_FTC_FTA.csv")
+
+#Mapping Probe Ids to Gene Names 
+library("hgu133plus2.db")
+
+#using hgu133plus2.db package earlier installed
+mapped_probes <- mappedkeys(hgu133plus2SYMBOL)
+
+# get mapping of affy-id to symbol for mapped probes
+mapped_list <- as.list(hgu133plus2SYMBOL[mapped_probes])
+
+
+all.probes <- rownames(fit2$coefficients)
+
+# match gives vector of positions of matches of 1st arg. in its 2nd.
+index <- match(all.probes,mapped_probes)
+
+# get the corresponding symbol from these indices
+all.symbol <- as.character(mapped_list[index])
+
+# some symbols are labelled NULL, substitute NULL to NA
+all.symbol <- gsub("NULL", NA, all.symbol)
+
+#Converting the gene names to Entrez Gene ID using the **pathview** library.
+library(pathview)
+
+#converting the gene symbol from DE_FTC_FTA_up.csv file to Entrez Gene
+allsymbol2eg <- id2eg(as.character(all.symbol),category="symbol",org="Hs")
+
+# saving the second column of the converted Entrez Gene ID 
+entrez_all <- allsymbol2eg[,2]
+entrez_all <- as.numeric(unique(entrez_all[!is.na(entrez_all)]))
+
+deg2eg <- id2eg(as.character(result_final$symbol),category = "symbol", org = "Hs")
+entrez_deg <- deg2eg[,2]
+
+#converting the results to unique numerical variables and removing NAs
+entrez_deg <- as.numeric(unique(entrez_deg[!is.na(entrez_deg)]))
+
+library(GOFunction)
+# Perform gene ontology biological process enrichment for up-regulated genes
+sigUpTermBP <- GOFunction(entrez_deg,entrez_all,organism="org.Hs.eg.db",
+                          ontology="MF",fdrmethod="BH",filename="FTA_FTC_DSigTermMF",fdrth=0.1)
+
+# Perform gene ontology Molecular function enrichment for up-regulated geens
+sigUpTermBP <- GOFunction(entrez_deg,entrez_all,organism="org.Hs.eg.db",
+                          ontology="BP",fdrmethod="BH",filename="FTA_FTC_DSigTermBP",fdrth=0.1)
+
+```
+## Visualization of pathway and Diff. Expressed Genes in KEGG pathway
+* Use the up-regulated gene list to identify which proteins are involved in **Thyriod cancer**.
+* The pathway id used was 05216 for thyriod cancer
+* Output are png files with mapping of genes represented as boxes filled with green color.
+
+```{r eval=T}
+
+p.values <- result_final$P.Value
+#assign entrez ids to pvalues
+names(p.values) <-upsymbol2eg[,2]
+#remove entries with no entrez ids
+p.values <- p.values[!is.na(names(p.values))]
+
+pv.out <- pathview(gene.data = -log10(p.values), pathway.id = "05216", species = "hsa", out.suffix = "kegg_pathway")
+
+#Look for png files with the names **kegg_pathway** as output of this command.
+```
+## Implementing Functional Enrichment with Reactome Pathways
+```{r eval=T}
+x <- enrichPathway(gene = entrez_up, pvalueCutoff = 0.2,qvalueCutoff = 0.2, readable=T)
+
+head(data.frame(x))
+
+# save the result into a file **reactome.up.csv**
+write.table(data.frame(x), file="reactome.FTC_up.csv", quote=F, row.names=F, col.names=T)
+
+# plot the top 10 pathways enriched (Click on Zoom to see everything in the figure)
+barplot(x, showCategory = 10)
+
+```
+
