@@ -79,7 +79,9 @@ boxplot(log2(expr+1), use.cols=TRUE, las=2,cex.axis=0.8, outline = F)
 
 ```{r eval=T}
 #creating a factor data
-group <- factor(c(rep(0,27),rep(1,25)))
+group <- factor(c(1,1,1,0,1,1,1,1,1,1,0,1,0,1,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,1,1,1,1,1,0,0,0,0,0,0,0))
+
+#group <- factor(c(rep(0,27),rep(1,25)))
 
 #creating design matrix to indicate the different RNA or miRNA samples
 design <- model.matrix(~ 0 + group)
@@ -145,17 +147,17 @@ print(head(result_final))
 ## Part 5: Saving the output into "csv" files
 
 ```{r eval=T}
-write.csv(result_final,file="DE_FTC_FTA.csv", quote=F)
+write.csv(result_final,file="DE_Final_FTC_FTA.csv", quote=F)
 
 # get a subset of result that is up regulated in cancer
 result_final_pos <- subset(result_final, result_final$logFC>0)
 print(head(result_final_pos))
-write.csv(result_final_pos,file="DE_FTC_FTA_up.csv", quote=F)
+write.csv(result_final_pos,file="DE_Final_FTC_FTA_up.csv", quote=F)
 
 # get a subset of result that is down regulated in cancer
 result_final_neg <- subset(result_final, result_final$logFC<0)
 print(head(result_final_pos))
-write.csv(result_final_neg,file="DE_FTC_FTA_DOWN.csv", quote=F)
+write.csv(result_final_neg,file="DE_Final_FTC_FTA-down.csv", quote=F)
 
 ```
 #Deliverable 2
@@ -170,7 +172,7 @@ library(dplyr)
 library(tidyverse)
 
 #Reading the target site csv file in R
-MiR <- read.csv(file ="/Users/mnwadiugwu/Desktop/MicroRNA_Target_Sites.csv")
+MiR <- read.csv(file ="/Users/mnwadiugwu/Desktop/project/MicroRNA_Target_Sites.csv")
 
 # converting it to a dplyr file format
 MiR <- tbl_df(MiR)
@@ -195,14 +197,14 @@ write.csv(GeneList, "UniqueGeneList.csv")
 ##Finding down-regulated miRNA target genes in FTC
 ```{r eval=T}
 #reading down regulated FTC file
-DownFTC <- read.csv("DE_FTC_FTA_DOWN.csv")
+DownFTC <- read.csv("DE_Final_FTA_FTC.csv")
 
 #Finding miRNA(miR 21) target genes via intersection with down regulated FTC file
 td<- data.frame(intersect(DownFTC$symbol, GeneList$Target.Gene.))
 print(td)
 
 #saving miR 21 target genes in FTA to a csv file
-write.csv(td, "Deliverable_3_FTCGene_of_interest.csv")
+write.csv(td, "FTcGene_of_interest.csv")
 
 
 #Finding down-regulated miRNA target genes in FTA
@@ -242,7 +244,7 @@ library(hgu133plus2.db)
 load("fit2.bin")
 
 # reading gene differential analysis results 
-result_final <- read.csv(file="DE_FTC_FTA.csv")
+result_final <- read.csv(file="DE_Final_FTC_FTA-down.csv")
 
 #Mapping Probe Ids to Gene Names 
 library("hgu133plus2.db")
@@ -284,21 +286,38 @@ entrez_deg <- as.numeric(unique(entrez_deg[!is.na(entrez_deg)]))
 library(GOFunction)
 # Perform gene ontology biological process enrichment for up-regulated genes
 sigUpTermBP <- GOFunction(entrez_deg,entrez_all,organism="org.Hs.eg.db",
-                          ontology="MF",fdrmethod="BH",filename="FTA_FTC_DSigTermMF",fdrth=0.1)
+                          ontology="MF",fdrmethod="BH",filename="fin_FTA_FTC_DSigTermMF",fdrth=0.1)
 
 # Perform gene ontology Molecular function enrichment for up-regulated geens
 sigUpTermBP <- GOFunction(entrez_deg,entrez_all,organism="org.Hs.eg.db",
-                          ontology="BP",fdrmethod="BH",filename="FTA_FTC_DSigTermBP",fdrth=0.1)
+                          ontology="BP",fdrmethod="BH",filename="fin_FTA_FTC_DSigTermBP",fdrth=0.1)
+
+```
+#Visualization of pathway and Diff. Expressed Genes in KEGG pathway
+# Step 1: Convert the gene names to Entrez Gene ID
+### Using **pathview** library.
+* In this step, we will convert the gene symbols from the up regulated list to Entrez Gene Ids. 
+
+```{r eval = T}
+up <- read.csv(file="DE_Final_FTC_FTA-down.csv")
+
+#convert the eigth column(symbol) to Entrez Gene
+upsymbol2eg <- id2eg(as.character(up[,8]),category="symbol",org="Hs")
+print(head(upsymbol2eg))
+
+# save the second column of upsymbol2eg map into a vector called entrez_up
+entrez_up <- upsymbol2eg[,2]
+entrez_up <- as.numeric(unique(entrez_up[!is.na(entrez_up)]))
 
 ```
 ## Visualization of pathway and Diff. Expressed Genes in KEGG pathway
-* Use the up-regulated gene list to identify which proteins are involved in **Thyriod cancer**.
+* Use the down-regulated gene list to identify which proteins are involved in **Thyriod cancer**.
 * The pathway id used was 05216 for thyriod cancer
 * Output are png files with mapping of genes represented as boxes filled with green color.
 
 ```{r eval=T}
 
-p.values <- result_final$P.Value
+p.values <- up$P.Value
 #assign entrez ids to pvalues
 names(p.values) <-upsymbol2eg[,2]
 #remove entries with no entrez ids
@@ -310,7 +329,7 @@ pv.out <- pathview(gene.data = -log10(p.values), pathway.id = "05216", species =
 ```
 ## Implementing Functional Enrichment with Reactome Pathways
 ```{r eval=T}
-x <- enrichPathway(gene = entrez_up, pvalueCutoff = 0.2,qvalueCutoff = 0.2, readable=T)
+x <- enrichPathway(gene = entrez_deg, pvalueCutoff = 0.2,qvalueCutoff = 0.2, readable=T)
 
 head(data.frame(x))
 
