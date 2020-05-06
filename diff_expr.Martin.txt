@@ -197,7 +197,7 @@ write.csv(GeneList, "UniqueGeneList.csv")
 ##Finding down-regulated miRNA target genes in FTC
 ```{r eval=T}
 #reading down regulated FTC file
-DownFTC <- read.csv("DE_Final_FTA_FTC.csv")
+DownFTC <- read.csv("DE_Final_FTA_FTC-down.csv")
 
 #Finding miRNA(miR 21) target genes via intersection with down regulated FTC file
 td<- data.frame(intersect(DownFTC$symbol, GeneList$Target.Gene.))
